@@ -1,0 +1,9 @@
+GRANT select, insert, update, delete ON table1 TO roleA;
+GRANT SELECT ON table2 TO roleB;
+GRANT SELECT ON table3 TO roleB;
+GRANT select, insert, update, delete ON table2 TO roleC;
+GRANT select, insert, update, delete ON table3 TO roleC;
+GRANT SELECT ON table2 TO roleD;
+GRANT SELECT ON table3 TO roleD;
+GRANT SELECT ON table4 TO roleD;
+GRANT SELECT ON table5 TO roleD;

@@ -1,0 +1,7 @@
+GRANT SELECT, INSERT, UPDATE, DELETE ON klm.dl_shft_cut_off_engn_enbl_stor TO dev_klm_kjfgd;
+GRANT SELECT ON klm.dl_rqst_hst TO dev_klm_kjfgd;
+GRANT SELECT, INSERT, UPDATE, DELETE ON klm.dl_rqst_hst TO dev_klm_odl;
+GRANT SELECT, INSERT, UPDATE, DELETE ON klm.cit_ord_dnld_ctl TO dev_klm_odl;
+GRANT SELECT, INSERT, UPDATE, DELETE ON klm.dl_scrw_up TO dev_klm_odl;
+GRANT SELECT, USAGE ON klm.dl_scrw_up_scrw_up_id_seq TO dev_klm_odl;
+GRANT SELECT, INSERT, UPDATE, DELETE ON klm.dl_rqst_hst TO dev_klm_nor;

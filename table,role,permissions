@@ -1,0 +1,6 @@
+table,role,permissions
+klm.dl_shft_cut_off_engn_enbl_stor,dev_klm_kjfgd,select,insert,update,delete
+klm.dl_rqst_hst,dev_klm_kjfgd,select
+klm.dl_rqst_hst,klm.cit_ord_dnld_ctl,klm.dl_scrw_up,dev_klm_odl,select,insert,update,delete
+klm.dl_scrw_up_scrw_up_id_seq,dev_klm_odl,select,usage
+klm.dl_rqst_hst,dev_klm_nor,select,insert,update,delete
