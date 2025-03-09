@@ -45,79 +45,254 @@ def load_parameters(csv_file_path):
                     role = values[-1].strip()  # Last column as role
 
                     structured_data.append((permission_type, tables, role))
-
         logging.info("Loaded parameters successfully.")
         return parameters if parameters else structured_data
-
     except Exception as e:
         logging.error(f"Error reading CSV file: {e}")
         return {} if parameters else []
+    
+    
+def grant_full_permissions(role, tables):
+    """ Grants SELECT, INSERT, UPDATE, DELETE permissions on tables. """
+    return [f"GRANT SELECT, INSERT, UPDATE, DELETE ON {table} TO {role};" for table in tables]
+
+
+def grant_select_usage_permissions(role, tables):
+    """ Grants SELECT and USAGE permissions (for schemas or sequences). """
+    return [f"GRANT SELECT, USAGE ON {table} TO {role};" for table in tables]
+
+
+def grant_select_permissions(role, tables):
+    """ Grants only SELECT permission on tables. """
+    return [f"GRANT SELECT ON {table} TO {role};" for table in tables]
+
+
+def load_grants_parameters(cursor, parameters):
+    """
+    Processes either structured data (list) or dictionary-based parameters.
+    """
+    grant_statements = []
+
+    if isinstance(parameters, list):
+        for row in parameters:
+            permission_parts = row["permissions"].split('_')
+            tables = row["tables"]
+            role = row["role"]
+
+            if 'full' in permission_parts:
+                grant_statements.extend(grant_full_permissions(role, tables))
+            elif 'select' in permission_parts and 'usage' in permission_parts:
+                grant_statements.extend(grant_select_usage_permissions(role, tables))
+            elif 'select' in permission_parts:
+                grant_statements.extend(grant_select_permissions(role, tables))
+    return grant_statements
+
 
 # Grant Functions
 def grant_select_on_table(cursor, table, role):
     cursor.execute(f"GRANT SELECT ON {table} TO {role};")
     logging.info(f"Granted SELECT on {table} to {role}.")
 
+
 def grant_select_usage_on_table(cursor, table, role):
     cursor.execute(f"GRANT SELECT, USAGE ON {table} TO {role};")
     logging.info(f"Granted SELECT, USAGE on {table} to {role}.")
+
 
 def grant_select_insert_update_delete_on_table(cursor, table, role):
     cursor.execute(f"GRANT SELECT, INSERT, UPDATE, DELETE ON {table} TO {role};")
     logging.info(f"Granted SELECT, INSERT, UPDATE, DELETE on {table} to {role}.")
 
-# Function to execute grants based on CSV data
-def execute_grants(data, cursor):
-    for permission_type, tables, role in data:
-        for table in tables:
-            if permission_type == "tables_to_receive_grant_select":
-                grant_select_on_table(cursor, table, role)
-            elif permission_type == "tables_to_receive_grant_select_usage":
-                grant_select_usage_on_table(cursor, table, role)
-            elif permission_type == "tables_to_receive_grant_full":
-                grant_select_insert_update_delete_on_table(cursor, table, role)
-            else:
-                logging.warning(f"Unknown permission type: {permission_type}")
 
-# Function to execute original script functionalities
-def execute_task(cursor, parameters, args):
+def create_database(cursor_postgres,args):
     """
-    This function executes the existing PostgreSQL role, user, and schema management tasks.
+    Check if the database exists, and create it if it doesn't.
+    """
+    logging.info("Checking for database %s on server %s", args.dbname, args.host)
+    try:
+        cursor_postgres.execute("SELECT 1 FROM pg_database WHERE datname = %s", (args.dbname,))
+        if cursor_postgres.fetchone():
+            logging.info("Database %s already exists", args.dbname)
+        else:
+            logging.info("Creating database %s", args.dbname)
+            cursor_postgres.execute(f"CREATE DATABASE {args.dbname};")
+    except Exception as e:
+        logging.error("Error checking or creating database: %s", e)   
+        
+        
+def create_datadog_role(cursor, cursor_postgres, args):
+    """
+    Function to create Datadog role and assign required permissions.
+    """
+    logging.info("Checking if 'datadog' user exists...")
+    cursor_postgres.execute("SELECT 1 FROM pg_user WHERE usename = 'datadog';")
+    if cursor_postgres.fetchone() is None:
+        logging.info("Creating 'datadog' user...")
+        cursor_postgres.execute("CREATE USER datadog;")
+    else:
+        logging.info("User 'datadog' already exists.")
+
+    # Enable pg_stat_statements in the postgres database
+    logging.info("Creating EXTENSION pg_stat_statements in postgres database")
+    cursor_postgres.execute("CREATE EXTENSION IF NOT EXISTS pg_stat_statements;")
+
+    # Enable pg_stat_statements in the application database
+    logging.info(f"Creating EXTENSION pg_stat_statements in {args.dbname} database")
+    cursor.execute("CREATE EXTENSION IF NOT EXISTS pg_stat_statements;")
+
+    # Grant permissions and set up Datadog schema
+    logging.info("Granting permissions to Datadog user...")
+    cursor.execute(f"GRANT datadog TO {args.username};")
+    cursor.execute(f"CREATE SCHEMA IF NOT EXISTS datadog;")
+    cursor.execute(f"GRANT USAGE ON SCHEMA datadog TO datadog;")
+    cursor.execute(f"GRANT USAGE ON SCHEMA public TO datadog;")
+    cursor.execute(f"GRANT pg_monitor TO datadog;")
+    cursor.execute(f"GRANT CONNECT ON DATABASE {args.dbname} TO datadog;")
+
+    # Create or replace function for Datadog
+    cursor.execute("""
+        CREATE OR REPLACE FUNCTION datadog.explain_statement(
+            l_query TEXT,
+            OUT explain JSON
+        )
+        RETURNS SETOF JSON AS
+        $$
+        DECLARE
+            curs REFCURSOR;
+            plan JSON;
+        BEGIN
+            OPEN curs FOR EXECUTE pg_catalog.concat('EXPLAIN (FORMAT JSON) ', l_query);
+            FETCH curs INTO plan;
+            CLOSE curs;
+            RETURN QUERY SELECT plan;
+        END;
+        $$
+        LANGUAGE 'plpgsql'
+        RETURNS NULL ON NULL INPUT
+        SECURITY DEFINER;
+    """)
+    logging.info("Datadog role setup completed successfully.")
+
+
+def create_user(cursor, user):
+    """
+    Create a PostgreSQL user if it does not already exist.
+
+    Checks the pg_roles catalog to see if the user exists, and if not, creates the user.
+    """
+    if not user:
+        return
+    # Check if user already exists
+    cursor.execute("SELECT 1 FROM pg_roles WHERE rolname = %s", (user,))
+    if cursor.fetchone():
+        logging.info("User %s already exists. Skipping.", user)
+    else:
+        logging.info("Creating user %s...", user)
+        # Create the user
+        cursor.execute(f"CREATE USER {user};")          
+        
+def alter_database_owner(cursor, database, owner):
+    # Determine the current user of the session
+    cursor.execute("SELECT session_user;")
+    session_user = cursor.fetchone()[0]
+
+    # If the current user does not match the owner, we execute GRANT
+    if session_user != owner:
+        logging.info("Granting access %s to session user.", database)
+        cursor.execute(f"GRANT {owner} TO SESSION_USER;")
+
+    logging.info("Setting owner of database %s to %s...", database, owner)
+    cursor.execute(f"ALTER DATABASE {database} OWNER TO {owner};")
+    
+    
+def create_schema(cursor, schema, owner):
+    """
+    Create a database schema if it does not already exist.
+
+    The schema is created with the specified owner.
+    """
+    # Check if the schema already exists in the database
+    cursor.execute("SELECT schema_name FROM information_schema.schemata WHERE schema_name = %s", (schema,))
+    if cursor.fetchone():
+        logging.info("Schema %s already exists. Skipping.", schema)
+    else:
+        logging.info("Creating schema %s with owner %s...", schema, owner)
+        # Create the schema with the given owner
+        cursor.execute(f"CREATE SCHEMA {schema} AUTHORIZATION {owner};")        
+        
+        
+def create_role(cursor, role):
+    """
+    Create a PostgreSQL role if it does not already exist.
+
+    Checks the pg_roles catalog to see if the role exists, and if not, creates the role.
+    """
+    if not role:
+        return
+    # Check if role already exists
+    cursor.execute("SELECT 1 FROM pg_roles WHERE rolname = %s", (role,))
+    if cursor.fetchone():
+        logging.info("Role %s already exists. Skipping.", role)
+    else:
+        logging.info("Creating role %s...", role)
+        # Create the role
+        cursor.execute(f"CREATE ROLE {role};")  
+        
+
+def is_role_assigned(cursor, role, user):
+    """
+    Check if a user already has a specific role.
+    """
+    cursor.execute("""
+        SELECT 1 FROM pg_roles r
+        JOIN pg_auth_members m ON r.oid = m.roleid
+        JOIN pg_roles u ON m.member = u.oid
+        WHERE r.rolname = %s AND u.rolname = %s
+    """, (role, user))
+    return cursor.fetchone() is not None
+        
+
+def grant_role_to_user(cursor, role, user):
+    """
+    Grant a specific role to a user if it is not already assigned.
+    """
+    if role and user:
+        if is_role_assigned(cursor, role, user):
+            logging.info("Role %s is already assigned to user %s. Skipping.", role, user)
+        else:
+            logging.info("Granting role %s to user %s...", role, user)
+            cursor.execute(f"GRANT {role} TO {user};")
+    
+
+def process_grants(cursor, grant_parameters):
+    """
+    Execute grant queries based on the structured grant parameters loaded from CSV.
+
+    The `grant_parameters` should be a list of dictionaries when a 'role' column exists,
+    each containing:
+    - permissions: The type of access to grant (e.g., 'select', 'insert', 'update', etc.).
+    - tables: A list of tables on which the permissions will be applied.
+    - role: The role to which the permissions will be granted.
+
+    If `grant_parameters` is a dictionary (old format), it will log a message and return.
     """
 
-    # Create Users
-    user_list = parameters.get("user_owner", []) + parameters.get("another_users", [])
-    for user in user_list:
-        create_user(cursor, user)
+    # Ensure we are working with structured grant data
+    if isinstance(grant_parameters, dict):
+        logging.error("Grant parameters are not in structured format. Skipping grants execution.")
+        return
 
-    # Change Database Owner
-    if parameters.get("user_owner"):
-        alter_database_owner(cursor, args.dbname, parameters["user_owner"][0])
+    grant_statements = []  # Store generated SQL statements
 
-    # Create Schemas
-    for schema in parameters.get("schema_list", []):
-        create_schema(cursor, schema, parameters["user_owner"][0])
+    # Loop through each row in structured grant parameters
+    for statement in grant_parameters:
+        logging.info(f"Executing: {statement}")
+        cursor.execute(statement)
+        grant_statements.append(statement)
 
-    # Create Roles
-    role_list = parameters.get("role_list", []) + [
-        parameters.get("role_cr", [None])[0],
-        parameters.get("role_ro", [None])[0],
-        parameters.get("role_rw", [None])[0],
-        parameters.get("role_tr", [None])[0],
-        parameters.get("role_pg_monitor", [None])[0]
-    ]
-    for role in role_list:
-        create_role(cursor, role)
-
-    # Assign Roles to Users
-    for role, users in {
-        parameters.get("role_ro", [None])[0]: parameters.get("users_to_receive_role_ro", []),
-        parameters.get("role_rw", [None])[0]: parameters.get("users_to_receive_role_rw", []),
-        parameters.get("role_tr", [None])[0]: parameters.get("users_to_receive_role_tr", []),
-        parameters.get("role_cr", [None])[0]: parameters.get("users_to_receive_role_cr", []),
-    }.items():
-        for user in users:
-            grant_role_to_user(cursor, role, user)
+    logging.info(f"Total {len(grant_statements)} grant statements executed successfully.")
+    
+    
 
 def main(args):
     """
@@ -139,17 +314,16 @@ def main(args):
     elif args.task == "create_datadog_role":
         create_datadog_role(cursor, cursor_postgres, args)
     elif args.task == "execute_grants":
-        data = load_parameters(args.parameter_file)
-        if isinstance(data, dict):  # Old format detected
+        grant_statements = load_grants_parameters(args.parameter_file)
+        process_grants(cursor, grant_statements)
+        if isinstance(grant_statements, dict):  # Old format detected
             logging.info("Old format detected. Skipping grants execution.")
-        elif not data:
+        elif not grant_statements:
             logging.error("No valid grant data found in CSV file.")
         else:
-            execute_grants(data, cursor)
             logging.info("Grants applied successfully!")
     else:
         parameters = load_parameters(args.parameter_file)
-        execute_task(cursor, parameters, args)
 
     # Close connections
     cursor.close()
@@ -170,3 +344,5 @@ if __name__ == "__main__":
     parser.add_argument("--useDatadog", type=str, required=True, help="Enable or disable Datadog role creation")
     args = parser.parse_args()
     main(args)
+    
+    

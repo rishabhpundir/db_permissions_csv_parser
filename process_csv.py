@@ -76,21 +76,21 @@ def process_grants(data):
             elif 'select' in permission_parts:
                 grant_statements.extend(grant_select_permissions(role, tables))
 
-    # If 'data' is a dictionary (old method)
-    elif isinstance(data, dict):
-        for permission, tables in data.items():
-            if permission == "permissions":  # Skip header row
-                continue
+    # # If 'data' is a dictionary (old method)
+    # elif isinstance(data, dict):
+    #     for permission, tables in data.items():
+    #         if permission == "permissions":  # Skip header row
+    #             continue
 
-            permission_parts = permission.lower().split('_')
-            role = permission  # Assume permission name as role (since no explicit role column)
+    #         permission_parts = permission.lower().split('_')
+    #         role = permission  # Assume permission name as role (since no explicit role column)
 
-            if 'full' in permission_parts:
-                grant_statements.extend(grant_full_permissions(role, tables))
-            elif 'select' in permission_parts and 'usage' in permission_parts:
-                grant_statements.extend(grant_select_usage_permissions(role, tables))
-            elif 'select' in permission_parts:
-                grant_statements.extend(grant_select_permissions(role, tables))
+    #         if 'full' in permission_parts:
+    #             grant_statements.extend(grant_full_permissions(role, tables))
+    #         elif 'select' in permission_parts and 'usage' in permission_parts:
+    #             grant_statements.extend(grant_select_usage_permissions(role, tables))
+    #         elif 'select' in permission_parts:
+    #             grant_statements.extend(grant_select_permissions(role, tables))
 
     return grant_statements
 
