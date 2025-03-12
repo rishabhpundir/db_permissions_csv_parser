@@ -3,51 +3,12 @@ import psycopg2
 import csv
 import logging
 
-
-
 # Configure logging with a specific format and set the log level to INFO
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
-
-
 
 def load_parameters(csv_file_path):
     """
     Load parameters from a CSV file into a structured format.
-
-    Supports two formats:
-    1. Old Format (Key-Value): { "key": ["value1", "value2"] }
-
-    Returns:
-        - Dictionary for old format
-    """
-    parameters = {}
-    try:
-        with open(csv_file_path, "r", encoding="utf-8") as csv_file:
-            reader = csv.reader(csv_file)
-            header = next(reader, None)
-            for row in reader:
-                if len(row) < 2:
-                    continue
-
-                key = row[0].strip().lower()
-                values = row[1:]
-                if len(values) == 1:
-                    value = values[0].strip()
-                    if "," in value:
-                        parameters[key] = [v.strip() for v in value.split(",") if v.strip()]
-                    else:
-                        parameters[key] = [value]
-        logging.info("Loaded parameters successfully.")
-        return parameters
-    except Exception as e:
-        logging.error(f"Error reading CSV file: {e}")
-        return {}
-
-
-def load_grant_parameters(csv_file_path):
-    """
-    Load parameters from a CSV file into a structured format.
-
     Supports two formats:
     1. Old Format (Key-Value): { "key": ["value1", "value2"] }
     2. New Format (Permissions, Tables, Roles): [("permission_type", ["table1", "table2"], "role")]
@@ -56,26 +17,37 @@ def load_grant_parameters(csv_file_path):
         - Dictionary for old format
         - List of tuples for new format
     """
+    parameters = {}
     structured_data = []
     try:
         with open(csv_file_path, "r", encoding="utf-8") as csv_file:
             reader = csv.reader(csv_file)
-            header = next(reader, None)
+            header = next(reader, None)  # Read header if exists
 
             for row in reader:
-                if len(row) < 2:
+                if len(row) < 2:  # Skip invalid rows
                     continue
+
                 key = row[0].strip().lower()
                 values = row[1:]
-                permission_type = key  # First column as permission type
-                tables = [table.strip() for table in values[:-1] if table.strip()]  # Middle columns as tables
-                role = values[-1].strip()  # Last column as role
-                structured_data.append((permission_type, tables, role))
+
+                if len(values) == 1:  # Old format (single value or comma-separated)
+                    value = values[0].strip()
+                    if "," in value:
+                        parameters[key] = [v.strip() for v in value.split(",") if v.strip()]
+                    else:
+                        parameters[key] = [value]
+                else:  # New format (permissions, tables, roles)
+                    permission_type = key  # First column as permission type
+                    tables = [table.strip() for table in values[:-1] if table.strip()]  # Middle columns as tables
+                    role = values[-1].strip()  # Last column as role
+
+                    structured_data.append((permission_type, tables, role))
         logging.info("Loaded parameters successfully.")
-        return structured_data
+        return parameters if parameters else structured_data
     except Exception as e:
         logging.error(f"Error reading CSV file: {e}")
-        return []
+        return {} if parameters else []
     
     
 def grant_full_permissions(cursor, role, tables):
@@ -462,17 +434,15 @@ def main(args):
             create_datadog_role(cursor, cursor_postgres, args)
         else:
             logging.info("Datadog role creation is disabled. Skipping.")
-            
-    elif args.task == "execute_grants":
-        parameters = load_grant_parameters(args.parameter_file)
-        process_grants(cursor, parameters)
-        logging.info("Grants applied successfully!")
-        
     else:
         parameters = load_parameters(args.parameter_file)
-        set_role_to_session_user(cursor)
-        execute_task(cursor, parameters, args)
-        logging.info("Parameters execution completed.")
+        if args.task == "execute_grants":
+            process_grants(cursor, parameters)
+            logging.info("Grants applied successfully!")
+        else:
+            set_role_to_session_user(cursor)
+            execute_task(cursor, parameters, args)
+            logging.info("Parameters execution completed.")
     
     cursor_postgres.close()
     conn_postgres.close()

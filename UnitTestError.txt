@@ -1,0 +1,75 @@
+When i am using below load_parameters
+
+def load_parameters(csv_file_path):
+
+    parameters = {}
+    structured_data = []
+    try:
+        with open(csv_file_path, "r", encoding="utf-8") as csv_file:
+            reader = csv.reader(csv_file)
+            header = next(reader, None)  # Read header if exists
+
+            for row in reader:
+                if len(row) < 2:  # Skip invalid rows
+                    continue
+
+                key = row[0].strip().lower()
+                values = row[1:]
+
+                if len(values) == 1:  # Old format (single value or comma-separated)
+                    value = values[0].strip()
+                    if "," in value:
+                        parameters[key] = [v.strip() for v in value.split(",") if v.strip()]
+                    else:
+                        parameters[key] = [value]
+                else:  # New format (permissions, tables, roles)
+                    permission_type = key  # First column as permission type
+                    tables = [table.strip() for table in values[:-1] if table.strip()]  # Middle columns as tables
+                    role = values[-1].strip()  # Last column as role
+
+                    structured_data.append((permission_type, tables, role))
+        logging.info("Loaded parameters successfully.")
+        return parameters if parameters else structured_data
+    except Exception as e:
+        logging.error(f"Error reading CSV file: {e}")
+        return {} if parameters else []
+    
+    #####################
+
+    The unit test is failing with below error for test_load_parameters.
+    Would you be able to fix this.
+    I have also attached the pythonTest script for your reference.
+    And also can you add a another test case to support Unit Tests for grants csv as well
+
+    ##############################
+
+    postgres_users_creation.py:341: KeyError
+------------------------------ Captured log setup ------------------------------
+INFO     root:postgres_users_creation_test.py:40 Set environment variable PGPASSWORD = mysecretpassword
+INFO     root:postgres_users_creation_test.py:116 Temporary CSV file created at /tmp/pytest-of-runner/pytest-0/test_main0/params.csv with parameters: [('user_owner', 'postgres'), ('another_users', 'test_user_main2,test_user_main'), ('role_list', 'test_role_main'), ('role_cr', 'test_role_cr_main'), ('role_ro', 'test_role_ro_main'), ('role_rw', 'test_role_rw_main'), ('role_tr', 'test_role_tr_main'), ('users_to_receive_role_ro', 'test_user_main'), ('users_to_receive_role_rw', 'test_user_main2'), ('users_to_receive_role_tr', 'test_user_main'), ('users_to_receive_role_cr', 'test_user_main2'), ('schema_list', 'test_schema_main'), ('schema_cr_list', 'test_schema_main'), ('schema_ro_list', 'test_schema_main'), ('schema_rw_list', 'test_schema_main'), ('schema_tr_list', 'test_schema_main')]
+------------------------------ Captured log call -------------------------------
+INFO     root:postgres_users_creation.py:309 Current session user: postgres
+INFO     root:postgres_users_creation.py:144 Creating user test_user_main2...
+INFO     root:postgres_users_creation.py:144 Creating user test_user_main...
+---------------------------- Captured log teardown -----------------------------
+INFO     root:postgres_users_creation_test.py:74 Closing database connection.
+=========================== short test summary info ============================
+FAILED postgres_users_creation_test.py::test_load_parameters - AssertionError: assert {'key2': ['value2', 'value3']} == {'key1': ['va...2', 'value3']}
+  
+  Omitting 1 identical items, use -vv to show
+  Right contains 1 more item:
+  {'key1': ['value1']}
+  
+  Full diff:
+    {
+  -     'key1': [
+  -         'value1',
+  -     ],
+        'key2': [
+            'value2',
+            'value3',
+        ],
+    }
+FAILED postgres_users_creation_test.py::test_main - KeyError: 'user_owner'
+========================= 2 failed, 9 passed in 20.10s =========================
+

@@ -52,40 +52,28 @@ def load_parameters(csv_file_path):
         return {} if parameters else []
     
     
-def grant_full_permissions(role, tables):
+def grant_full_permissions(cursor, role, tables):
     """ Grants SELECT, INSERT, UPDATE, DELETE permissions on tables. """
-    return [f"GRANT SELECT, INSERT, UPDATE, DELETE ON {table} TO {role};" for table in tables]
+    queries = [f"GRANT SELECT, INSERT, UPDATE, DELETE ON {table.strip()} TO {role};" for table in tables]
+    for query in queries:
+        logging.info("executing %s...", query)
+        cursor.execute(query)
 
 
-def grant_select_usage_permissions(role, tables):
+def grant_select_usage_permissions(cursor, role, tables):
     """ Grants SELECT and USAGE permissions (for schemas or sequences). """
-    return [f"GRANT SELECT, USAGE ON {table} TO {role};" for table in tables]
+    queries = [f"GRANT SELECT, USAGE ON {table.strip()} TO {role};" for table in tables]
+    for query in queries:
+        logging.info("executing %s...", query)
+        cursor.execute(query)
 
 
-def grant_select_permissions(role, tables):
+def grant_select_permissions(cursor, role, tables):
     """ Grants only SELECT permission on tables. """
-    return [f"GRANT SELECT ON {table} TO {role};" for table in tables]
-
-
-def load_grants_parameters(cursor, parameters):
-    """
-    Processes either structured data (list) or dictionary-based parameters.
-    """
-    grant_statements = []
-
-    if isinstance(parameters, list):
-        for row in parameters:
-            permission_parts = row["permissions"].split('_')
-            tables = row["tables"]
-            role = row["role"]
-
-            if 'full' in permission_parts:
-                grant_statements.extend(grant_full_permissions(role, tables))
-            elif 'select' in permission_parts and 'usage' in permission_parts:
-                grant_statements.extend(grant_select_usage_permissions(role, tables))
-            elif 'select' in permission_parts:
-                grant_statements.extend(grant_select_permissions(role, tables))
-    return grant_statements
+    queries = [f"GRANT SELECT ON {table.strip()} TO {role};" for table in tables]
+    for query in queries:
+        logging.info("executing %s...", query)
+        cursor.execute(query)
 
 
 # Grant Functions
@@ -282,15 +270,20 @@ def process_grants(cursor, grant_parameters):
         logging.error("Grant parameters are not in structured format. Skipping grants execution.")
         return
 
-    grant_statements = []  # Store generated SQL statements
-
     # Loop through each row in structured grant parameters
-    for statement in grant_parameters:
-        logging.info(f"Executing: {statement}")
-        cursor.execute(statement)
-        grant_statements.append(statement)
+    if isinstance(grant_parameters, list):
+        for row in grant_parameters:
+            permission_parts = row[0].split('_')
+            tables = row[1][0].split(',')
+            role = row[2]
+            if 'full' in permission_parts:
+                grant_full_permissions(cursor, role, tables)
+            elif 'select' in permission_parts and 'usage' in permission_parts:
+                grant_select_usage_permissions(cursor, role, tables)
+            elif 'select' in permission_parts:
+                grant_select_permissions(cursor, role, tables)
 
-    logging.info(f"Total {len(grant_statements)} grant statements executed successfully.")
+    logging.info(f"Total {len(grant_parameters)} grant statements executed successfully.")
     
     
 
@@ -314,7 +307,7 @@ def main(args):
     elif args.task == "create_datadog_role":
         create_datadog_role(cursor, cursor_postgres, args)
     elif args.task == "execute_grants":
-        grant_statements = load_grants_parameters(args.parameter_file)
+        grant_statements = load_parameters(args.parameter_file)
         process_grants(cursor, grant_statements)
         if isinstance(grant_statements, dict):  # Old format detected
             logging.info("Old format detected. Skipping grants execution.")
@@ -344,5 +337,6 @@ if __name__ == "__main__":
     parser.add_argument("--useDatadog", type=str, required=True, help="Enable or disable Datadog role creation")
     args = parser.parse_args()
     main(args)
+    
     
     

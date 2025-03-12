@@ -9,51 +9,37 @@ import logging
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 
 
-
 def load_parameters(csv_file_path):
     """
-    Load parameters from a CSV file into a structured format.
+    Load parameters from a CSV file into a dictionary.
 
-    Supports two formats:
-    1. Old Format (Key-Value): { "key": ["value1", "value2"] }
-
-    Returns:
-        - Dictionary for old format
+    Each row in the CSV should have at least two columns. The first column is the key,
+    and the second column is the value. If the value contains commas, it is split into a list.
+    All keys are converted to lowercase.
     """
     parameters = {}
-    try:
-        with open(csv_file_path, "r", encoding="utf-8") as csv_file:
-            reader = csv.reader(csv_file)
-            header = next(reader, None)
-            for row in reader:
-                if len(row) < 2:
-                    continue
-
-                key = row[0].strip().lower()
-                values = row[1:]
-                if len(values) == 1:
-                    value = values[0].strip()
-                    if "," in value:
-                        parameters[key] = [v.strip() for v in value.split(",") if v.strip()]
-                    else:
-                        parameters[key] = [value]
-        logging.info("Loaded parameters successfully.")
-        return parameters
-    except Exception as e:
-        logging.error(f"Error reading CSV file: {e}")
-        return {}
+    with open(csv_file_path, "r", encoding="utf-8") as csv_file:
+        reader = csv.reader(csv_file)
+        for row in reader:
+            # Skip rows that do not have at least two columns
+            if len(row) < 2:
+                continue
+            # Normalize key and value
+            key, value = row[0].strip().lower(), row[1].strip()
+            # If the value contains commas, split it into a list; otherwise, create a single-element list
+            if "," in value:
+                parameters[key] = [v.strip() for v in value.split(",") if v.strip()]
+            else:
+                parameters[key] = [value.strip()]
+    logging.info("Loaded parameters: %s", parameters)
+    return parameters
 
 
 def load_grant_parameters(csv_file_path):
     """
     Load parameters from a CSV file into a structured format.
-
-    Supports two formats:
-    1. Old Format (Key-Value): { "key": ["value1", "value2"] }
-    2. New Format (Permissions, Tables, Roles): [("permission_type", ["table1", "table2"], "role")]
-
+    Supports New Format (Permissions, Tables, Roles): [("permission_type", ["table1", "table2"], "role")]
     Returns:
-        - Dictionary for old format
         - List of tuples for new format
     """
     structured_data = []
