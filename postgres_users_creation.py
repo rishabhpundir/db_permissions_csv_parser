@@ -39,7 +39,7 @@ def load_parameters(csv_file_path):
                         parameters[key] = [value]
                 else:  # New format (permissions, tables, roles)
                     permission_type = key  # First column as permission type
-                    tables = [table.strip() for table in values[:-1] if table.strip()]  # Middle columns as tables
+                    tables = [table.strip() for table in values[0].split(",") if table.strip()]  # Middle columns as tables
                     role = values[-1].strip()  # Last column as role
 
                     structured_data.append((permission_type, tables, role))
@@ -48,8 +48,8 @@ def load_parameters(csv_file_path):
     except Exception as e:
         logging.error(f"Error reading CSV file: {e}")
         return {} if parameters else []
-    
-    
+
+
 def grant_full_permissions(cursor, role, tables):
     """ Grants SELECT, INSERT, UPDATE, DELETE permissions on tables. """
     queries = [f"GRANT SELECT, INSERT, UPDATE, DELETE ON {table.strip()} TO {role};" for table in tables]
@@ -436,6 +436,7 @@ def main(args):
             logging.info("Datadog role creation is disabled. Skipping.")
     else:
         parameters = load_parameters(args.parameter_file)
+
         if args.task == "execute_grants":
             process_grants(cursor, parameters)
             logging.info("Grants applied successfully!")

@@ -54,7 +54,7 @@ def load_grant_parameters(csv_file_path):
                 key = row[0].strip().lower()
                 values = row[1:]
                 permission_type = key  # First column as permission type
-                tables = [table.strip() for table in values[:-1] if table.strip()]  # Middle columns as tables
+                tables = [table.strip() for table in values[0].split(",") if table.strip()]  # Middle columns as tables
                 role = values[-1].strip()  # Last column as role
                 structured_data.append((permission_type, tables, role))
         logging.info("Loaded parameters successfully.")
