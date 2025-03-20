@@ -3,123 +3,51 @@ import psycopg2
 import csv
 import logging
 
-
-
 # Configure logging with a specific format and set the log level to INFO
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 
 
 def load_parameters(csv_file_path):
     """
-    Load parameters from a CSV file into a dictionary.
+    Load parameters from a CSV file into a structured format.
 
-    Each row in the CSV should have at least two columns. The first column is the key,
-    and the second column is the value. If the value contains commas, it is split into a list.
-    All keys are converted to lowercase.
+    Supports two formats:
+    1. Original Logic (Key-Value): { "key": ["value1", "value2"] }
+    2. Additional Logic (Permissions, Tables, Roles): [("permission_type", ["table1", "table2"], "role")]
+
+    Returns:
+        - Dictionary for original format if CSV contains 2 columns.
+        - List of tuples for new format if CSV contains 3 columns.
     """
-    parameters = {}
     with open(csv_file_path, "r", encoding="utf-8") as csv_file:
         reader = csv.reader(csv_file)
-        for row in reader:
-            # Skip rows that do not have at least two columns
-            if len(row) < 2:
-                continue
-            # Normalize key and value
-            key, value = row[0].strip().lower(), row[1].strip()
-            # If the value contains commas, split it into a list; otherwise, create a single-element list
-            if "," in value:
-                parameters[key] = [v.strip() for v in value.split(",") if v.strip()]
-            else:
-                parameters[key] = [value.strip()]
-    logging.info("Loaded parameters: %s", parameters)
-    return parameters
-
-
-def load_grant_parameters(csv_file_path):
-    """
-    Load parameters from a CSV file into a structured format.
-    Supports New Format (Permissions, Tables, Roles): [("permission_type", ["table1", "table2"], "role")]
-    Returns:
-        - List of tuples for new format
-    """
-    structured_data = []
-    try:
-        with open(csv_file_path, "r", encoding="utf-8") as csv_file:
-            reader = csv.reader(csv_file)
-            header = next(reader, None)
-
+        header = next(reader, None)  # Read header if exists
+        
+        if header and len(header) == 2:
+            parameters = {}
             for row in reader:
                 if len(row) < 2:
                     continue
-                key = row[0].strip().lower()
-                values = row[1:]
-                permission_type = key  # First column as permission type
-                tables = [table.strip() for table in values[0].split(",") if table.strip()]  # Middle columns as tables
-                role = values[-1].strip()  # Last column as role
+                key, value = row[0].strip().lower(), row[1].strip()
+                if "," in value:
+                    parameters[key] = [v.strip() for v in value.split(",") if v.strip()]
+                else:
+                    parameters[key] = [value]
+            logging.info("Loaded parameters successfully.")
+            return parameters
+        
+        elif header and len(header) == 3:
+            structured_data = []
+            for row in reader:
+                if len(row) < 3:
+                    continue
+                permission_type = row[0].strip().lower()
+                tables = [table.strip() for table in row[1].split(",") if table.strip()]
+                role = row[2].strip()
                 structured_data.append((permission_type, tables, role))
-        logging.info("Loaded parameters successfully.")
-        return structured_data
-    except Exception as e:
-        logging.error(f"Error reading CSV file: {e}")
-        return []
-    
-    
-def grant_full_permissions(cursor, role, tables):
-    """ Grants SELECT, INSERT, UPDATE, DELETE permissions on tables. """
-    queries = [f"GRANT SELECT, INSERT, UPDATE, DELETE ON {table.strip()} TO {role};" for table in tables]
-    for query in queries:
-        logging.info("executing %s...", query)
-        cursor.execute(query)
-
-
-def grant_select_usage_permissions(cursor, role, tables):
-    """ Grants SELECT and USAGE permissions (for schemas or sequences). """
-    queries = [f"GRANT SELECT, USAGE ON {table.strip()} TO {role};" for table in tables]
-    for query in queries:
-        logging.info("executing %s...", query)
-        cursor.execute(query)
-
-
-def grant_select_permissions(cursor, role, tables):
-    """ Grants only SELECT permission on tables. """
-    queries = [f"GRANT SELECT ON {table.strip()} TO {role};" for table in tables]
-    for query in queries:
-        logging.info("executing %s...", query)
-        cursor.execute(query)
-
-
-def process_grants(cursor, grant_parameters):
-    """
-    Execute grant queries based on the structured grant parameters loaded from CSV.
-
-    The `grant_parameters` should be a list of dictionaries when a 'role' column exists,
-    each containing:
-    - permissions: The type of access to grant (e.g., 'select', 'insert', 'update', etc.).
-    - tables: A list of tables on which the permissions will be applied.
-    - role: The role to which the permissions will be granted.
-
-    If `grant_parameters` is a dictionary (old format), it will log a message and return.
-    """
-
-    # Ensure we are working with structured grant data
-    if isinstance(grant_parameters, dict):
-        logging.error("Grant parameters are not in structured format. Skipping grants execution.")
-        return
-
-    # Loop through each row in structured grant parameters
-    if isinstance(grant_parameters, list):
-        for row in grant_parameters:
-            permission_parts = row[0].split('_')
-            tables = row[1][0].split(',')
-            role = row[2]
-            if 'full' in permission_parts:
-                grant_full_permissions(cursor, role, tables)
-            elif 'select' in permission_parts and 'usage' in permission_parts:
-                grant_select_usage_permissions(cursor, role, tables)
-            elif 'select' in permission_parts:
-                grant_select_permissions(cursor, role, tables)
-    logging.info(f"Total {len(grant_parameters)} grant statements executed successfully.")
-    
+            logging.info("Loaded structured parameters successfully.")
+            return structured_data
+    return {}
 
 def create_database(cursor_postgres,args):
     """
@@ -314,6 +242,28 @@ def grant_truncate_on_tables(cursor, schema, role):
     cursor.execute(f"GRANT TRUNCATE ON ALL TABLES IN SCHEMA {schema} TO {role};")
     cursor.execute(f"ALTER DEFAULT PRIVILEGES IN SCHEMA {schema} GRANT TRUNCATE ON TABLES TO {role};")
 
+
+def grant_full_permissions(cursor, role, tables):
+    """ Grants SELECT, INSERT, UPDATE, DELETE permissions on tables. """
+    for table in tables:
+        logging.info("Granting SELECT, INSERT, UPDATE, DELETE on %s to %s...", table, role)
+        cursor.execute(f"GRANT SELECT, INSERT, UPDATE, DELETE ON {table} TO {role};")
+
+
+def grant_select_usage_permissions(cursor, role, tables):
+    """ Grants SELECT and USAGE permissions (for schemas or sequences). """
+    for table in tables:
+        logging.info("Granting SELECT, USAGE on %s to %s...", table, role)
+        cursor.execute(f"GRANT SELECT, USAGE ON {table} TO {role};")
+
+
+def grant_select_permissions(cursor, role, tables):
+    """ Grants only SELECT permission on tables. """
+    for table in tables:
+        logging.info("Granting SELECT on %s to %s...", table, role)
+        cursor.execute(f"GRANT SELECT ON {table} TO {role};")
+
+
 def grant_role_cr(cursor, schemas, role):
     for schema in schemas:
         grant_usage_on_schema(cursor, schema, role)
@@ -348,6 +298,30 @@ def set_role_to_session_user(cursor):
     cursor.execute("SELECT session_user;")
     session_user = cursor.fetchone()[0]  # Fetch the session user
     logging.info("Current session user: %s", session_user)
+
+def process_grants(cursor, grant_parameters):
+    """Executes grant queries based on structured parameters."""
+
+    grant_functions = {
+        "full": grant_full_permissions,
+        "select": grant_select_permissions,
+        "select_usage": grant_select_usage_permissions,
+    }
+
+    total_grants_executed = 0
+    prefix = "tables_to_receive_grant_"
+
+    for permission_type, tables, role in grant_parameters:
+        grant_type = permission_type[len(prefix):]  # Extracts "full", "select", etc.
+        grant_function = grant_functions.get(grant_type)
+
+        for table in {t.strip() for table_list in tables for t in table_list.split(",")}:  # Properly splits tables
+            grant_function(cursor, role, [table])
+            total_grants_executed += 1
+            
+    logging.info("Grants applied!")
+    logging.info("Executed %d grant statements successfully.", total_grants_executed)
+
 
 # Execute the task based on the parameters loaded from the CSV file
 def execute_task(cursor, parameters, args):
@@ -442,29 +416,37 @@ def main(args):
     # Check if the task is to update user passwords and store them in Key Vault
     if args.task == "create_database":
         create_database(cursor_postgres, args)
-        
+        cursor_postgres.close()
+        conn_postgres.close()
+        return
     elif args.task == "create_datadog_role":
         if args.useDatadog == 'Enabled':
             create_datadog_role(cursor, cursor_postgres, args)
+            # Close the postgres cursor and connection
+            cursor_postgres.close()
+            conn_postgres.close()
+            return
         else:
             logging.info("Datadog role creation is disabled. Skipping.")
-            
+            return
     elif args.task == "execute_grants":
-        parameters = load_grant_parameters(args.parameter_file)
-        process_grants(cursor, parameters)
-        logging.info("Grants applied successfully!")
-        
-    else:
+        # Load parameters and execute grants
+        # parameters = load_grant_parameters(args.parameter_file)
         parameters = load_parameters(args.parameter_file)
+        process_grants(cursor, parameters)
+        
+
+    else:
+        # Load parameters from the provided CSV file
+        parameters = load_parameters(args.parameter_file)
+        # Set role to current session user
         set_role_to_session_user(cursor)
         execute_task(cursor, parameters, args)
-        logging.info("Parameters execution completed.")
-    
-    cursor_postgres.close()
-    conn_postgres.close()
+        # Close the cursor and connection
+        cursor.close()
+        conn.close()
+
     logging.info("Script execution completed.")
-
-
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
@@ -472,9 +454,8 @@ if __name__ == "__main__":
     parser.add_argument("-p", "--port", type=int, required=True, help="Database port")
     parser.add_argument("-U", "--username", type=str, required=True, help="PostgreSQL user")
     parser.add_argument("-d", "--dbname", type=str, required=True, help="Database name")
-    parser.add_argument("--password", type=str, required=True, help="Database password")
-    parser.add_argument("--parameter_file", type=str, required=True, help="CSV parameter file")
+    parser.add_argument("--parameter_file", type=str, help="CSV parameter file")
     parser.add_argument("--task", type=str, required=True, help="Specify a task to run")
-    parser.add_argument("--useDatadog", type=str, required=True, help="Enable or disable Datadog role creation")
+    parser.add_argument("--useDatadog", type=str, help="Enable or disable Datadog role creation")
     args = parser.parse_args()
     main(args)

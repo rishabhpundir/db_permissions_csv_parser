@@ -1,5 +1,0 @@
-"permissions,tables,role"
-"tables_to_receive_grant_full,table1,roleA"
-"tables_to_receive_grant_select,table2,table3,roleB"
-"tables_to_receive_grant_full,table3,table4,roleC"
-"tables_to_receive_grant_select_usage,table5,table6,table7,roleD"

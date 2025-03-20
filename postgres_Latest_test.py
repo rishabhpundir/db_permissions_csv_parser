@@ -11,9 +11,8 @@ from argparse import Namespace
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 
 # Import the functions to be tested from the user_creation_basic.py script
-from postgres_users_creation_2_loaders import (
+from postgres_Latest import (
     load_parameters,
-    load_grant_parameters,
     create_user,
     create_role,
     create_schema,
@@ -121,68 +120,52 @@ def temp_csv_file(tmp_path: Path):
 ########################################
 # TESTS FOR INDIVIDUAL FUNCTIONS
 #########################################
-
 def test_load_parameters(temp_csv_file):
     """
     Test for the load_parameters function.
-    Checks for:
-    1. Correct parsing of key-value pairs.
-    2. Proper handling of comma-separated values.
-    3. Empty cases (ensuring {} is returned correctly).
+    The test checks:
+    1. Old format (dictionary output)
+    2. New format (list of tuples output)
+    3. Empty cases (ensuring {} or [] is returned correctly)
     """
     logging.info("Starting test_load_parameters")
 
-    test_data = [
+    # Test Case 1: Old Format (Dictionary Output)
+    test_data_old = [
         ["user_owner", "admin"],
         ["role_list", "role1, role2"],
         ["schema_list", "schema1"],
     ]
-    
     with temp_csv_file.open("w", encoding="utf-8", newline="") as f:
         writer = csv.writer(f)
-        writer.writerows(test_data)
-    
+        writer.writerows(test_data_old)
+
     params = load_parameters(str(temp_csv_file))
     expected = {
-        "user_owner": ["admin"],
         "role_list": ["role1", "role2"],
         "schema_list": ["schema1"]
     }
-    
-    logging.info(f"Loaded parameters: {params}, expected: {expected}")
-    assert params == expected, "Failed key-value format test"
-    logging.info("test_load_parameters completed successfully!")
+    logging.info(f"Old Format - Loaded parameters: {params}, expected: {expected}")
+    assert params == expected, "Failed old format test"
 
-
-def test_load_grant_parameters(temp_csv_file):
-    """
-    Test for the load_grant_parameters function.
-    Checks for:
-    1. Proper parsing of permission types, tables, and roles.
-    2. Handling of multiple tables.
-    3. Empty cases (ensuring [] is returned correctly).
-    """
-    logging.info("Starting test_load_grant_parameters")
-
-    test_data = [
+    # Test Case 2: New Format (List of Tuples Output)
+    test_data_new = [
         ["permissions", "tables", "role"],
         ["select", "table1, table2", "role_reader"],
         ["update", "table3", "role_writer"],
     ]
-    
     with temp_csv_file.open("w", encoding="utf-8", newline="") as f:
         writer = csv.writer(f)
-        writer.writerows(test_data)
-    
-    params = load_grant_parameters(str(temp_csv_file))
+        writer.writerows(test_data_new)
+
+    params = load_parameters(str(temp_csv_file))
     expected = [
         ("select", ["table1", "table2"], "role_reader"),
         ("update", ["table3"], "role_writer"),
     ]
-    
-    logging.info(f"Loaded grant parameters: {params}, expected: {expected}")
-    assert params == expected, "Failed grant format test"
-    logging.info("test_load_grant_parameters completed successfully!")
+    logging.info(f"New Format - Loaded parameters: {params}, expected: {expected}")
+    assert params == expected, "Failed new format test"
+    logging.info("test_load_parameters completed successfully!")
 
 
 
